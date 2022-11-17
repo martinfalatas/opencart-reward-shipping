@@ -1,0 +1,175 @@
+<modification>
+	<name>Shipping for Reward points by OpenQuiz</name>
+	<version>1.0</version>
+	<link>http://openquiz.eu</link>
+	<author>OpenQuiz</author>
+	<code>reward_shipping</code>
+
+	<file path="catalog/view/theme/{default,journal2}/template/checkout/shipping_method.tpl">
+		<operation>
+			<search><![CDATA[<div class="buttons">]]></search>
+			<add position="before"><![CDATA[
+<?php
+if ($shipping_methods) {
+foreach ($shipping_methods as $shipping_method) {
+    foreach ($shipping_method['quote'] as $quote) {
+        if (isset($quote['disable_radio']) && $quote['disable_radio'] === true){
+?>
+            <script type="text/javascript"><!--
+                jQuery(document).ready(function () {
+                    var input = jQuery("input[value='reward_shipping.reward_shipping']");
+                    if(input.length != 0){
+                        input.removeAttr("checked");
+                        input.attr('disabled', true);
+                        input.hide();
+                    }
+                });
+            // --></script>
+<?php } } } } ?>			
+
+<script type="text/javascript"><!--
+    jQuery(document).ready(function () {
+
+        function add(){
+            $.ajax({
+                url: 'index.php?route=checkout/reward_shipping/add',
+                type: 'get',
+                dataType: 'json',
+                beforeSend: function() {
+                    $('#button-shipping-method').button('loading');
+                },
+                complete: function() {
+                    $('#button-shipping-method').button('reset');
+                },
+                success: function(json) {
+                    $('.alert').remove();
+                    if (json['success']) {
+                        $('#collapse-shipping-method .panel-body').prepend('<div class="alert alert-success"><i class="fa fa-check-circle"></i> ' + json['success'] + '<button type="button" class="close" data-dismiss="alert">&times;</button></div>');
+                    }
+                }
+            });
+        }
+
+        function remove(){
+            $.ajax({
+                url: 'index.php?route=checkout/reward_shipping/delete',
+                type: 'get',
+                dataType: 'json',
+                beforeSend: function() {
+                    $('#button-shipping-method').button('loading');
+                },
+                complete: function() {
+                    $('#button-shipping-method').button('reset');
+                },
+                success: function(json) {
+                    $('.alert').remove();
+                    if (json['success']) {
+                        $('#collapse-shipping-method .panel-body').prepend('<div class="alert alert-success"><i class="fa fa-check-circle"></i> ' + json['success'] + '<button type="button" class="close" data-dismiss="alert">&times;</button></div>');
+                    }
+
+                }
+            });
+        }
+
+        //first load shipping page
+        var insert_status = false;
+        var reward = jQuery("input[value='reward_shipping.reward_shipping']");
+        if( reward.is(':checked') && !insert_status ){
+            add();
+            insert_status = true;
+        }
+
+        var input = jQuery("input[name='shipping_method']");
+        input.on('click', function(){
+            if($(this).attr('value') == 'reward_shipping.reward_shipping'){
+                if( reward.is(':checked') && !insert_status ){
+                    add();
+                    insert_status = true;
+                }
+            }else{
+                if(insert_status){
+                    remove();
+                    insert_status = false;
+                }else{
+                    $('.alert').remove();
+                }
+            }
+        });
+
+    });
+// --></script>			
+			]]></add>
+		</operation>
+	</file>
+  
+  <file path="catalog/controller/checkout/cart.php">
+      <operation>
+          <search><![CDATA[$data['products'][] = array(]]></search>
+          <add position="before"><![CDATA[
+			    //ocmod_reward_shipping
+                $this->load->model('extension/shipping/reward_shipping');
+                $this->model_extension_shipping_reward_shipping->removeTmpPoints();
+                //end ocmod_reward_shipping
+
+			]]></add>
+      </operation>
+      <operation>
+			<search><![CDATA[unset($this->session->data['reward']);]]></search>
+			<add position="after"><![CDATA[
+
+			//ocmod_reward_shipping
+            $this->load->model('extension/shipping/reward_shipping');
+            $this->model_extension_shipping_reward_shipping->removeTmpPoints();
+            //end ocmod_reward_shipping
+
+			]]></add>
+		</operation>
+  </file>
+    
+    
+  <file path="catalog/model/checkout/order.php">
+		<operation>
+			<search><![CDATA[$this->db->query("DELETE FROM `" . DB_PREFIX . "affiliate_transaction` WHERE order_id = '" . (int)$order_id . "'");]]></search>
+			<add position="after"><![CDATA[
+        $this->db->query("DELETE FROM `" . DB_PREFIX . "customer_reward` WHERE order_id = '" . (int)$order_id . "' AND note = 'REWARD_SHIPPING'");				
+			]]></add>
+		</operation>
+		<operation>
+      <search><![CDATA[$this->cache->delete('product');]]></search>
+			<add position="after"><![CDATA[
+
+            //ocmod Reward Points Shipping Method
+            if($order_status_id) {
+                $this->load->language('extension/shipping/reward_shipping');
+                $this->db->query("DELETE FROM `" . DB_PREFIX . "customer_reward` WHERE order_id = '0' AND customer_id = '".(int)$order_info['customer_id']."' AND note = 'REWARD_SHIPPING_TMP'");
+                if ('reward_shipping.reward_shipping' == $order_info['shipping_code']) {
+                    $check_query = $this->db->query("SELECT * FROM "
+                        . DB_PREFIX . "customer_reward "
+                        . "WHERE   customer_id = '" . (int)$order_info['customer_id']
+                        . "' AND   order_id    = '" . (int)$order_info['order_id']
+                        . "' AND   note = 'REWARD_SHIPPING'");
+                    if (!$check_query->num_rows) {
+                        $this->db->query("INSERT INTO " . DB_PREFIX . "customer_reward "
+                            . " SET customer_id = '" . (int)$order_info['customer_id']
+                            . "',   order_id    = '" . (int)$order_info['order_id']
+                            . "',   description = '" . $this->db->escape(sprintf($this->language->get('text_reward_shipping_description'), (int)$order_info['order_id']))
+                            . "',   points      = '-" . $this->config->get('reward_shipping_cost')
+                            . "',   note = 'REWARD_SHIPPING"
+                            . "', date_added = NOW()"
+                        );
+                    }
+                }else {
+                    $this->db->query("DELETE FROM `" . DB_PREFIX . "customer_reward` WHERE order_id = '" . (int)$order_id . "' AND note = 'REWARD_SHIPPING'");
+                }
+
+                $cancelled_statuses = $this->config->has('reward_shipping_cancelled_statuses') ? $this->config->get('reward_shipping_cancelled_statuses') : array();
+                if (in_array( $order_status_id, $cancelled_statuses)) {
+                    $this->db->query("DELETE FROM `" . DB_PREFIX . "customer_reward` WHERE order_id = '" . (int)$order_id . "' AND note = 'REWARD_SHIPPING'");
+                }
+            }
+            //end ocmod Reward Points Shipping Method
+
+			]]></add>
+		</operation>    
+	</file>  
+</modification>
